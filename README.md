@@ -19,3 +19,11 @@ CS7, providing a reproducible, tractable, and permutable experimental platform t
 understand the basic cellular and molecular mechanisms that underlie human
 development, and a high-throughput platform to dissect developmental disorders and
 congenital pathologies.
+
+## Structure
+
+This repository contains the scripts used to generate the single-cell RNA-sequencing figures presented in Pedroza et al., "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". Scripts are divided by main text and Extended Data.
+
+## Data Availability
+
+The original scRNA-seq dataset for the extra-embryoid can be found in the Gene Expression Omnibus (GEO) under accession code (TBD).
