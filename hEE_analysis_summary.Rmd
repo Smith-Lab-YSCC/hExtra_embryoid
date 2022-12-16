@@ -1,0 +1,684 @@
+---
+title: "hEE Data Analysis - Pedroza, Gassaloglu et al. 2022"
+author: "Nicolas Dias"
+date: "12/15/2022"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include=FALSE}
+library(rgl)
+options(rgl.useNULL = TRUE, future.globals.maxSize = 100000*1024^2)
+setupKnitr(autoprint=TRUE)
+```
+
+# Introduction
+
+This is a notebook documenting our analysis of two single-cell RNA-sequencing (scRNA-seq) samples for a novel _in vitro_ human Extra-Embryoid (hEE) model. The outcome of this work was originally reported in Pedroza, Gassaloglu et al. 2022. The data used in this analysis is available at GEO accession GSE208195. 
+
+Required libraries.
+
+```{r Libraries, warning=FALSE, message=FALSE}
+library(Seurat, verbose = FALSE, warn.conflicts = FALSE) # Basic single-cell analysis
+library(ggplot2) # General plot functions
+library(gridExtra) # Arrange plots
+library(dplyr) # Pipe operator
+library(matrixStats) # Variance explained by PCs
+library(clustree) # Evaluate clustering robustness
+library(EnhancedVolcano) # Volcano plots
+library(ggbeeswarm) # Randomize dots in dotplots
+library(slingshot) # Trajectory inference
+library(scater) # Plotting gene expression over pseudotime
+library(SingleCellExperiment) # SingleCellExperiment object class
+library(gridExtra) # Arranging plots
+```
+
+## Quality control and initial analysis 
+
+Loading raw data and creating Seurat Objects.
+
+```{r Raw data to Seurat}
+# Set data directory for convenience
+path <- "L:/Smith_Lab/Collaborations/Sozen_lab/"
+
+# Read in 10X output
+d4 <- Read10X(data.dir = paste0(path,"Data_Submission/D4/filtered_feature_bc_matrix"))
+d6 <- Read10X(data.dir = paste0(path,"Data_Submission/D6/filtered_feature_bc_matrix"))
+
+# Create Seurat objects, append metadata and barcodes with timepoint information
+d4 <- CreateSeuratObject(counts = d4, project = "D4", min.cells = 5, min.features = 50)
+d4$timepoint <- "D4"
+d4 <- RenameCells(d4, add.cell.id = "D4")
+d6 <- CreateSeuratObject(counts = d6, project = "D6", min.cells = 5, min.features = 50)
+d6$timepoint <- "D6"
+d6 <- RenameCells(d6, add.cell.id = "D6")
+
+print(paste0("Cells in D4: ", ncol(d4)))
+print(paste0("Cells in D6: ", ncol(d6)))
+```
+
+First round of quality control. Samples were merged for simplicity in this notebook, as quality metrics were consistently distributed across the data. Thresholds were determined empirically based on these distributions and metadata statistics.
+
+```{r QC 1}
+merged <- merge(d4, d6) # Merge data
+
+rm(d4, d6) # memory allocation
+gc(verbose=FALSE)
+
+merged[["percent.mt"]] <- PercentageFeatureSet(merged, pattern = "^MT-") # Annotate mitochondrial content
+
+table(merged$orig.ident) # Number of cells in each condition
+summary(merged$nCount_RNA) # Transcript number
+summary(merged$nFeature_RNA) # Number of unique genes expressed
+summary(merged$percent.mt) # Percent of transcripts of mitochondrial origin
+
+sd(merged$nCount_RNA) 
+sd(merged$nFeature_RNA)
+sd(merged$percent.mt) 
+
+
+p1 <- ggplot(merged@meta.data, mapping = aes(x = nFeature_RNA)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 2000), color = 'red') + NoLegend()
+p2 <- ggplot(merged@meta.data, mapping = aes(x = percent.mt)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 10, color = 'red')) + NoLegend()
+p3 <- ggplot(merged@meta.data, mapping = aes(x = nCount_RNA)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 31000, color = 'red')) + NoLegend()
+print(p1 + p2 + p3)
+```
+
+After applying QC thresholds, distribution of quality metrics is roughly normal. Another round of cluster based QC is applied downstream.
+
+```{r QC Filter}
+# Subset on QC thresholds
+merged.f <- subset(merged, subset = percent.mt < 10 & nFeature_RNA > 2000 & nCount_RNA < 27500)
+
+rm(merged) # memory allocation
+gc(verbose=FALSE)
+
+p1 <- ggplot(merged.f@meta.data, mapping = aes(x = nFeature_RNA)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 2000), color = 'red') + NoLegend()
+p2 <- ggplot(merged.f@meta.data, mapping = aes(x = percent.mt)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 10, color = 'red')) + NoLegend()
+p3 <- ggplot(merged.f@meta.data, mapping = aes(x = nCount_RNA)) + geom_histogram(bins = 120) + geom_vline(aes(xintercept = 27500, color = 'red')) + NoLegend()
+print(p1 + p2 + p3) 
+```
+
+Initial analysis revealed two major compartments shared between D4 and D6 but separated by PC1. Interestingly, there was also substantial separation between D4 and D6 samples along PC2 and in UMAP. Of the top 50 loadings for PC2, 10% were mitochondrial genes, suggesting a potential batch effect. 
+
+```{r First-pass analysis}
+# Standard preprocessing
+merged.f <- merged.f %>% 
+  NormalizeData(verbose = FALSE) %>% 
+  FindVariableFeatures(verbose = FALSE) %>% 
+  ScaleData(features = VariableFeatures(merged.f), verbose = FALSE) %>%
+  RunPCA(verbose = FALSE) %>%
+  FindNeighbors(dims = 1:20, verbose = FALSE) %>%
+  RunUMAP(dims = 1:20, verbose = FALSE)
+
+
+p1 <- DimPlot(merged.f, reduction = "pca", group.by = "timepoint", shuffle = TRUE) # Plot PCA biplot for PC1/PC2
+p2 <- DimPlot(merged.f, reduction = "umap", group.by = "timepoint", shuffle = TRUE) # Plot PCA biplot for PC1/PC2
+
+p3 <- ElbowPlot(merged.f) # Scree plot for PCA
+
+# Calculate % of total variance explained by each PC (50 total)
+percent_var = ((merged.f@reductions$pca@stdev)^2 / sum(rowVars(merged.f@assays$RNA@scale.data)))*100
+print(percent_var[1:2]) # Variance explained by PC1 and PC2
+
+print(p1 + p2 + p3)
+print(DimHeatmap(merged.f, dims = 1:2, nfeatures = 50, balanced = TRUE, reduction = "pca")) # Heatmap for top 50 loadings of PC1 and PC2
+```
+
+After further analysis, we decided to perform data integration on the D4 and D6 samples using Reciprocal PCA (RPCA). RPCA is described in Andreatta and Carmona, 2021. It is recommended for use in integration where not all cell types are present in two or more samples generated with a common technology (10X). Given the possibility of temporal differences such as progenitor pool depletion or cell type differentiation in the 48hr interval, we opted for this technique instead of Canonical Correlation Analysis (CCA), for example. We also attempted to regress out variance derived from mitochondrial genes and cell cycle differences (not all cell cycle variance), retaining substantial variation in one major compartment due to phase. Initial gene expression projection onto the UMAP revealed that the major compartments may represent distinct embryonic (SOX2/HESX1+) and extra-embryonic (GATA3/6+) populations, each with some internal heterogeneity that may have been obscured by the great differences between them.
+
+```{r RPCA integration}
+merge.list <- SplitObject(merged.f, split.by = "orig.ident") # Split merged object for integration
+
+rm(merged.f) # memory allocation
+gc(verbose=FALSE)
+
+merge.list <- lapply(X = merge.list, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+})
+
+features <- SelectIntegrationFeatures(object.list = merge.list)
+
+merge.list <- lapply(X = merge.list, FUN = function(x) {
+    x <- ScaleData(x, features = features, verbose = FALSE)
+    x <- RunPCA(x, features = features, verbose = FALSE)
+})
+
+merge.anchors <- FindIntegrationAnchors(object.list = merge.list, anchor.features = features, reduction = "rpca", verbose = FALSE) # Identify similar cells between D4 and D6 using reciprocal PCA
+merge.integrated <- IntegrateData(anchorset = merge.anchors, verbose = FALSE) # Integrate on anchors
+
+rm(merge.list, merge.anchors)
+gc(verbose=FALSE)
+
+DefaultAssay(merge.integrated) <- "integrated"
+
+# Cell (CC) cycle scoring based on known genes
+s.genes <- cc.genes$s.genes 
+g2m.genes <- cc.genes$g2m.genes
+merge.integrated <- CellCycleScoring(merge.integrated,  s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+merge.integrated$CC.Difference <- merge.integrated$S.Score - merge.integrated$G2M.Score # Calculate CC difference
+
+merge.integrated <- ScaleData(merge.integrated, verbose = FALSE, vars.to.regress = c("CC.Difference", "percent.mt")) 
+merge.integrated <- RunPCA(merge.integrated, npcs = 30, verbose = FALSE) 
+merge.integrated <- RunUMAP(merge.integrated, dims = 1:30, verbose = FALSE)
+merge.integrated <- FindNeighbors(merge.integrated, dims = 1:30, verbose = FALSE)
+merge.integrated <- FindClusters(merge.integrated, resolution = 0.1, verbose = FALSE) # Low resolution to identify major compartments
+
+
+p1 <- DimPlot(merge.integrated, reduction = "umap", group.by = "orig.ident", shuffle = TRUE) + ggtitle("Timepoint")
+p2 <- DimPlot(merge.integrated, reduction = "umap", group.by = "integrated_snn_res.0.1", label = TRUE, repel = TRUE, shuffle = "TRUE")
+p3 <- DimPlot(merge.integrated, reduction = "umap", group.by = "Phase", label = TRUE, repel = TRUE, shuffle = "TRUE")
+print(p1 + p2 + p3)
+
+print(FeaturePlot(merge.integrated, features = c("GATA3", "GATA6", "SOX2", "HESX1"), order = TRUE, ncol = 2))
+```
+
+To further classify these major compartments, we attempted label transfer using an _in vivo_ human embryo scRNA-seq reference from Xiang et al. 2019. Consistent with our preliminary observations, the major compartments were classified as "Epiblast" and "Hypoblast" using this approach. We harnessed these classifications to subset our data for sub-clustering.
+
+```{r Label Transfer}
+xiang <- readRDS(paste0(path, "Xiang/xiang_seurat.rds"))
+
+x_anchors <- FindTransferAnchors(reference = xiang, query = merge.integrated, dims = 1:30, reference.reduction = "pca", k.filter = NA, verbose = FALSE) # Too few cells to filter anchors
+predictions_xiang <- TransferData(anchorset = x_anchors, refdata = xiang$Cell_type, dims = 1:30, verbose = FALSE)
+
+merge.integrated <- AddMetaData(merge.integrated, metadata = predictions_xiang)
+merge.integrated$predicted.id <- paste0("Xiang_", merge.integrated$predicted.id)
+
+rm(predictions_xiang, x_anchors, xiang)
+gc(verbose=FALSE)
+
+p1 <- DimPlot(merge.integrated, group.by = "predicted.id", cols = c("#20B169", "#E28E44")) + ggtitle("Label Transfer")
+print(p1)
+```
+
+## Subclustering
+
+Having identified the two major compartments, we set out to describe the heterogeneity within them through sub-clustering. First, the compartment identified as Epiblast was isolated, integrated with RPCA, and clustered. We observed fairly robust clustering at the 0.35-0.45 resolution range, and opted for the lower end (0.35) for initial exploration. The finer resolution also allowed us to identify artifact communities with consistent clustering and poor quality metrics, which were filtered out in sequential steps described below.
+
+```{r Sub-clustering analysis - Epiblast 1}
+# Subset on label transfer identity
+Idents(merge.integrated) <- merge.integrated$predicted.id
+epi <- subset(merge.integrated, idents = "Xiang_EPI")
+
+# Split subset by time point
+DefaultAssay(epi) <- "RNA"
+epi <- SplitObject(epi, "orig.ident")
+
+# Preprocessing
+epi <- lapply(X = epi, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+})
+
+# Integration
+epi_features <- SelectIntegrationFeatures(object.list = epi, verbose = FALSE)
+
+epi <- lapply(X = epi, FUN = function(x) {
+    x <- ScaleData(x, features = epi_features, verbose = FALSE)
+    x <- RunPCA(x, features = epi_features, verbose = FALSE)
+})
+
+epi_anchors <- FindIntegrationAnchors(object.list = epi, anchor.features = epi_features, reduction = "rpca", verbose = FALSE)
+epi <- IntegrateData(anchorset = epi_anchors, verbose = FALSE)
+
+rm(epi_anchors, epi_features)
+gc(verbose = FALSE)
+
+# Preprocessing
+DefaultAssay(epi) <- "integrated"
+epi <- ScaleData(epi, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+epi <- RunPCA(epi, verbose = FALSE)
+epi <- RunUMAP(epi, dims = 1:30, verbose = FALSE)
+
+# Subclustering
+epi <- FindNeighbors(epi, dims = 1:30, verbose = FALSE)
+epi <- FindClusters(epi, resolution = seq(0.2, 1, 0.05), verbose = FALSE) # Identify constant clusters
+
+print(clustree(epi)) # Clustering tree
+
+# Analysis
+epi$sub_clusters <- paste0("Epi_", epi$integrated_snn_res.0.35)
+p1 <- DimPlot(epi, shuffle = TRUE, group.by = "sub_clusters", label = TRUE)
+p2 <- DimPlot(epi, split.by = "orig.ident", group.by = "sub_clusters")
+print(p1 + p2)
+print(VlnPlot(epi, group.by = "sub_clusters", features = c("nFeature_RNA", "nCount_RNA", "percent.mt")))
+```
+
+In a second pass through the Epiblast compartment, we observed a large community that was both removed from the main structure, positive for Hypoblast marker genes (GATA3, GATA6), and displayed close to twice as high average transcript count and unique feature expression compared to other cells in this subset. We decided to aggregate this population into one community using the clustree to identify a suitable resolution, ultimately opting for 0.2 and filtering out this subcluster as potential doublets.
+
+```{r Sub-clustering Analysis - Epiblast 2}
+# Filter
+epi <- subset(epi, sub_clusters == "Epi_8", invert = TRUE)
+
+# Reprocess
+DefaultAssay(epi) <- "integrated"
+epi <- ScaleData(epi, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+epi <- RunPCA(epi, npcs = 30, verbose = FALSE)
+epi <- RunUMAP(epi, reduction = "pca", dims = 1:30, verbose = FALSE)
+
+# Sub-cluster analysis
+epi <- FindNeighbors(epi, reduction = "pca", dims = 1:30, verbose = FALSE)
+epi <- FindClusters(epi, resolution = seq(0.2,1, 0.05), verbose = FALSE)
+
+print(clustree(epi))
+
+epi$sub_clusters <- paste0("Epi_", epi$integrated_snn_res.0.2)
+p1 <- DimPlot(epi, shuffle = TRUE, group.by = "sub_clusters", label = TRUE)
+p2 <- DimPlot(epi, split.by = "orig.ident", group.by = "sub_clusters")
+p3 <- FeaturePlot(epi, features = "nFeature_RNA")
+
+print(p1 + p2 + p3)
+print(VlnPlot(epi, group.by = "sub_clusters", features = c("nFeature_RNA", "nCount_RNA", "percent.mt")))
+
+print(FeaturePlot(epi, features = c("GATA3", "GATA6"), order = TRUE))
+```
+
+At this stage, we observed that many of the larger communities were split from the main structure in this subset, suggesting overclustering. We again selected a resolution of 0.35 as a starting point and identified marker genes for each cluster. We noticed that, indeed, sub-clusters 0, 1 and 2 had very few specific markers genes, indicating redundancy in the clustering, even at relatively low resolution. These clusters were consolidated into the reported "PI-Epi" cluster.
+
+```{r Sub-clustering Analysis - Epiblast 3}
+# Filter
+epi <- subset(epi, sub_clusters == "Epi_2", invert = TRUE)
+
+# Reprocess
+DefaultAssay(epi) <- "integrated"
+epi <- ScaleData(epi, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+epi <- RunPCA(epi, npcs = 30, verbose = FALSE)
+epi <- RunUMAP(epi, reduction = "pca", dims = 1:30, verbose = FALSE)
+
+# Sub-cluster analysis
+epi <- FindNeighbors(epi, reduction = "pca", dims = 1:30, verbose = FALSE)
+epi <- FindClusters(epi, resolution = seq(0.2,1, 0.05), verbose = FALSE)
+
+print(clustree(epi))
+
+epi$sub_clusters <- paste0("Epi_", epi$integrated_snn_res.0.35)
+p1 <- DimPlot(epi, shuffle = TRUE, group.by = "sub_clusters", label = TRUE) + ggtitle("Epiblast subclusters")
+p2 <- DimPlot(epi, split.by = "orig.ident", group.by = "sub_clusters")
+print(p1 + p2)
+print(VlnPlot(epi, group.by = "sub_clusters", features = c("nFeature_RNA", "nCount_RNA")))
+
+# Marker identification
+Idents(epi) <- epi$sub_clusters
+DefaultAssay(epi) <- "RNA"
+epi <- ScaleData(epi, verbose = FALSE)
+epi_markers <- FindAllMarkers(epi, only.pos = TRUE, verbose = FALSE)
+epi_markers$pct.diff <- epi_markers$pct.1 - epi_markers$pct.2
+epi_markers <- epi_markers %>%
+  filter(p_val_adj < 1e-10 & abs(pct.diff) > 0.2)
+
+top30_markers_epi <- epi_markers %>% 
+  group_by(cluster) %>%
+    slice_max(n = 30, order_by = avg_log2FC)
+
+print(DoHeatmap(epi, features = top30_markers_epi$gene) + NoLegend())
+```
+
+Next, we set out to characterize the Hypoblast compartment. Given the large amount of variance explained by the cell cycle in this population, we expected a lower degree of heterogeneity. Nevertheless, we proceeded with a similar strategy as previously described. Following from cluster tree analysis, we noticed a consistent small cluster with abnormal quality metrics and removed from the main structure. We opted to remove this cluster as potential doublets. Interestingly, even major clusters seemed to be primarily separated by cell cycle phase, suggesting a persistent population of slow-cycling G1 cells, and another of G2/S phase cells.
+
+```{r Subclustering Analysis - Hypoblast 1}
+# Subset
+Idents(merge.integrated) <- merge.integrated$predicted.id
+hypo <- subset(merge.integrated, idents = "Xiang_Hypoblast")
+
+# Split object by time point
+DefaultAssay(hypo) <- "RNA"
+hypo <- SplitObject(hypo, "orig.ident")
+
+# Preprocessing
+hypo <- lapply(X = hypo, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+})
+
+# Integration
+hypo_features <- SelectIntegrationFeatures(object.list = hypo)
+
+hypo <- lapply(X = hypo, FUN = function(x) {
+    x <- ScaleData(x, features = hypo_features, verbose = FALSE)
+    x <- RunPCA(x, features = hypo_features, verbose = FALSE)
+})
+
+hypo_anchors <- FindIntegrationAnchors(object.list = hypo, anchor.features = hypo_features, reduction = "rpca")
+hypo <- IntegrateData(anchorset = hypo_anchors)
+
+rm(hypo_anchors)
+gc(verbose=FALSE)
+
+# Pre-processing
+DefaultAssay(hypo) <- "integrated"
+hypo <- ScaleData(hypo, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+hypo <- RunPCA(hypo, npcs = 30, verbose = FALSE)
+hypo <- RunUMAP(hypo, reduction = "pca", dims = 1:30, verbose = FALSE)
+
+# Sub-luster analysis
+hypo <- FindNeighbors(hypo, reduction = "pca", dims = 1:30, verbose = FALSE)
+hypo <- FindClusters(hypo, resolution = seq(0.1, 0.8,0.05), verbose = FALSE)
+
+clustree(hypo)
+
+hypo$sub_clusters <- paste0("Hypo_", hypo$integrated_snn_res.0.35)
+p1 <- DimPlot(hypo, shuffle = TRUE, group.by = "sub_clusters")
+p2 <- DimPlot(hypo, split.by = "orig.ident", group.by = "sub_clusters")
+p3 <- DimPlot(hypo, group.by = "Phase", shuffle = TRUE)
+p4 <- FeaturePlot(hypo, features = c("nFeature_RNA", "nCount_RNA"))
+print(p1 + p2 + p3)
+print(p4)
+print(VlnPlot(hypo, features = c("nFeature_RNA", "nCount_RNA"), group.by = "sub_clusters"))
+```
+
+After removing the artifact, we moved to characterize the remaining populations. We opted for slight overclustering of the clear two populations divided by phase, choosing a resolution parameter of 0.35 for a total of 4 communities. Finally, we performed differential gene expression to resolve these clusters' identities. Importantly, we observed a surprising subset of inhibitor genes ( _CER1_, _LEFTY1_, _LEFTY2_, _SHISA2_, _NODAL2_) was highly expressed the smallest sub-cluster. We determined that this pattern of expression was consistent with the Anterior Visceral Endoderm (AVE), and termed this population "AVE-like".
+
+```{r Subclustering Analysis - Hypoblast 2}
+# Filter
+hypo <- subset(hypo, sub_clusters == "Hypo_3", invert = TRUE)
+
+# Reprocess
+DefaultAssay(hypo) <- "integrated"
+hypo <- ScaleData(hypo, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+hypo <- RunPCA(hypo, npcs = 30, verbose = FALSE)
+hypo <- RunUMAP(hypo, reduction = "pca", dims = 1:30, verbose = FALSE)
+
+# Sub-cluster analysis
+hypo <- FindNeighbors(hypo, reduction = "pca", dims = 1:30, verbose = FALSE)
+hypo <- FindClusters(hypo, resolution = seq(0.1, 0.6, 0.05), verbose = FALSE)
+
+print(clustree(hypo))
+
+# Plots
+hypo$sub_clusters <- paste0("Hypo_", hypo$integrated_snn_res.0.35)
+p1 <- DimPlot(hypo, shuffle = TRUE, group.by = "sub_clusters", label = TRUE) + ggtitle("Hypoblast subclusters")
+p2 <- DimPlot(hypo, split.by = "orig.ident", group.by = "sub_clusters")
+p3 <- DimPlot(hypo, group.by = "Phase", shuffle = TRUE)
+p4 <- FeaturePlot(hypo, features = c("nFeature_RNA", "nCount_RNA"))
+print(p1 + p2 + p3)
+print(p4)
+print(VlnPlot(hypo, group.by = "sub_clusters", features = c("nFeature_RNA", "nCount_RNA")))
+
+# Marker identification
+DefaultAssay(hypo) <- "RNA"
+Idents(hypo) <- hypo$sub_clusters
+hypo <- ScaleData(hypo, verbose = FALSE)
+
+hypo_markers <- FindAllMarkers(hypo, only.pos = TRUE, verbose = FALSE)
+hypo_markers$pct.diff <- hypo_markers$pct.1 - hypo_markers$pct.2
+hypo_markers <- hypo_markers %>%
+  filter(p_val_adj < 1e-10 & abs(pct.diff) > 0.2)
+
+
+top30_markers_hypo <- hypo_markers %>% 
+  group_by(cluster) %>%
+    slice_max(n = 30, order_by = avg_log2FC)
+
+print(DoHeatmap(hypo, features = top30_markers_hypo$gene) + NoLegend())
+```
+
+Having identified both intriguing and redundant sub-clusters, we next removed the cells filtered in the individual compartment analyses and consolidated our new annotation into the reported cell types. Note that the UMAPs in this notebook may look different from the published report. Differential gene expression results highlight the similarity between sub-clusters within either compartment, while some characteristic genes still distinguish them from the larger total.
+
+```{r Sub-cluster annotation}
+# Subset after additional QC
+hEE <- subset(merge.integrated, cells = c(colnames(epi), colnames(hypo)))
+DefaultAssay(hEE) <- "RNA"
+
+anno_object <- merge(epi, hypo)
+
+# Integration
+hEE <- SplitObject(hEE, split.by = "orig.ident")
+
+hEE <- lapply(X = hEE, FUN = function(x) {
+    x <- NormalizeData(x, verbose = FALSE)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+})
+
+hEE_features <- SelectIntegrationFeatures(object.list = hEE)
+
+hEE <- lapply(X = hEE, FUN = function(x) {
+    x <- ScaleData(x, features = hEE_features, verbose = FALSE)
+    x <- RunPCA(x, features = hEE_features, verbose = FALSE)
+})
+
+hEE_anchors <- FindIntegrationAnchors(object.list = hEE, anchor.features = hEE_features, reduction = "rpca", verbose = FALSE)
+hEE <- IntegrateData(anchorset = hEE_anchors, verbose = FALSE)
+
+rm(hEE_anchors, hEE_features)
+gc(verbose=FALSE)
+
+# Preprocessing
+DefaultAssay(hEE) <- "integrated"
+hEE <- ScaleData(hEE, vars.to.regress = c("percent.mt", "CC.Difference"), verbose = FALSE)
+hEE <- RunPCA(hEE, npcs = 30, verbose = FALSE)
+hEE <- RunUMAP(hEE, reduction = "pca", dims = 1:30, verbose = FALSE)
+
+# Transfer annotation
+hEE$sub_clusters <- anno_object$sub_clusters
+md <- hEE@meta.data
+
+md <- md %>%
+  mutate(Cell_type = case_when(sub_clusters == "Epi_0" ~ "PI-Epi",
+                           sub_clusters == "Epi_1" ~ "PI-Epi",
+                           sub_clusters == "Epi_2" ~ "PI-Epi",
+                           sub_clusters == "Epi_3" ~ "PI-Epi.L",
+                           sub_clusters == "Epi_4" ~ "AME",
+                           sub_clusters == "Epi_5" ~ "PS-like",
+                           sub_clusters == "Epi_6" ~ "Meso-like",
+                           sub_clusters == "Hypo_0" ~ "G2M/S Hypo",
+                           sub_clusters == "Hypo_1" ~ "G1 Hypo",
+                           sub_clusters == "Hypo_2" ~ "G1 Hypo",
+                           sub_clusters == "Hypo_3" ~ "AVE-like"))
+
+hEE@meta.data <- md
+
+rm(hypo, epi, merge.integrated, anno_object)
+gc(verbose=FALSE)
+
+cluster_colors <- c("#85C1E9", "#B03A2E", "#F1948A", "#AF7AC5", "#F5B041", "#808B96", "#2471A3", "#229954")
+cluster_order <- c("PI-Epi", "AME", "PI-Epi.L", "PS-like", "Meso-like", "G1 Hypo", "G2M/S Hypo", "AVE-like")
+anno <- data.frame(colors = cluster_colors, order = cluster_order)
+
+print(DimPlot(hEE) + scale_color_manual(values = anno$colors, breaks = anno$order)) # Final UMAP
+
+# Marker identification
+Idents(hEE) <- hEE$Cell_type
+DefaultAssay(hEE) <- "RNA"
+hEE <- NormalizeData(hEE, verbose = FALSE)
+hEE <- ScaleData(hEE, verbose = FALSE)
+
+hEE_markers <- FindAllMarkers(hEE, only.pos = TRUE, verbose = FALSE)
+hEE_markers$pct.diff <- hEE_markers$pct.1 - hEE_markers$pct.2
+hEE_markers <- hEE_markers %>%
+  filter(p_val_adj < 1e-10 & abs(pct.diff) > 0.2)
+
+top30_hEE_markers <- hEE_markers %>% 
+  group_by(cluster) %>%
+    slice_max(n = 30, order_by = avg_log2FC)
+
+print(DoHeatmap(hEE, features = top30_hEE_markers$gene) + NoLegend())
+```
+
+## Downstream analyses
+
+Following the consolidation of stable cell types, we next directed our attention to two focused issues: characterization of the AME sub-cluster in comparison to the main Epiblast population, and disambiguation of the Hypoblast cluster as to its extra-embryonic character, considering the similarity in expression between the extra-embryonic Hypoblast and Definitive Endoderm, an embryonic lineage. For the former, differential gene expression revealed upregulation of amnion markers such as BMP4 and ISL1 in this population, consistent with our classification.
+
+```{r AME investigation}
+ave_hypo <- subset(hEE, idents = c("AME", "PI-Epi"))
+DefaultAssay(ave_hypo) <- "RNA"
+ave_markers <- FindMarkers(ave_hypo, ident.1 = "AME")
+
+set <- c("TFAP2A", "PCAT14", "FAM20A", "ID1", "ID4", "MSX2", "NKX1-2", "BMP4", "ISL1", "TPM1", "SEPHS1", "VIM", "LINC00458", "CD24", "AS1", "FGFBP3", "AK4", "FOXD3") # Genes to highlight due to label proximity
+
+p1 <- EnhancedVolcano(ave_markers,
+    lab = rownames(ave_markers),
+    x = 'avg_log2FC',
+    y = 'p_val_adj', title = "", subtitle = "AME vs. PI-Epi", FCcutoff = 0.4, selectLab = set)
+print(p1)
+```
+
+As for the Hypoblast, we selected a set of Definitive Endoderm (DE) and Primitive Endoderm (PE) markers and calculated a module score: a measure of average expression for a group of genes relative to a random genes with similar levels of expression across the entire sample as background. A score of 0 means the selected genes have about average expression, while positive or negative scores denote upregulation and downregulation respectively. By subtracting one score from the other, we obtained a relative module score of PE vs. DE identity, which unambiguously favored PE in the Hypoblast compartment sub-clusters.
+
+```{r Hypoblast disambiguation}
+# Calculate module score for Definitive Endoderm markers
+hEE <- AddModuleScore(hEE, features = list(c("CD48", "PTN", "KIT", "EGF")), name = "DE_markers")
+summary(hEE$DE_markers1)
+FeaturePlot(hEE, features = "DE_markers1", order = TRUE)
+
+# Calculate module score for Primitive Endoderm markers
+hEE <- AddModuleScore(hEE, features = list(c("APOC1", "PODXL", "VCAN", "APOE")), name = "PE_markers")
+summary(hEE$PE_markers1)
+FeaturePlot(hEE, features = "PE_markers1", order = TRUE)
+
+# Calculate difference for relative score
+hEE$Endo_score <- hEE$PE_markers1 - hEE$DE_markers1
+summary(hEE$Endo_score)
+FeaturePlot(hEE, features = "Endo_score", order = TRUE)
+
+# Binarize score
+hEE$Endo_character <- ifelse(hEE$Endo_score > 0, "PE", "DE") # If score is positive, PE is greater than DE, and vice-versa
+
+print(table(hEE$Endo_character, hEE$Cell_type))
+
+# Proportion of cells classified as either PE or DE in the Hypoblast
+df <- hEE@meta.data[hEE$Cell_type == "G1 Hypo" | hEE$Cell_type == "G2M/S Hypo" | hEE$Cell_type == "AVE-like", ] # Subset metadata
+t <- as.data.frame.matrix(t(prop.table(table(df$Endo_character, df$Cell_type), margin = 2))) # proportion table of DE vs. PE in the Hypoblast sub-clusters
+print(t)
+
+print(ggplot(df) + geom_bar(aes(x = Endo_character, y = ..prop.., group = 1, fill = Endo_character), stat = "count") + scale_y_continuous(labels = scales::percent_format()) + facet_wrap( ~ Cell_type) + theme_minimal() + ylab("Proportion") + xlab("Relative Marker Expression"))
+
+hEE$Cell_type <- factor(hEE$Cell_type, levels = anno$order)
+
+# Boxplots of scores
+p1 <- ggplot(hEE@meta.data, aes(x = Cell_type, y = DE_markers1, fill = Cell_type)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + ylab("DE Markers") + xlab("Cell type") + geom_jitter(shape=".", position=position_jitter(0.2)) + ylim(-1.3, 2.7) + NoLegend()
+
+p2 <- ggplot(hEE@meta.data, aes(x = Cell_type, y = PE_markers1, fill = Cell_type)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + ylab("PE Markers") + xlab("Cell type") + geom_jitter(shape=".", position=position_jitter(0.2)) + ylim(-1.3, 2.7) + NoLegend()
+
+p3 <- ggplot(hEE@meta.data, aes(x = Cell_type, y = Endo_score, fill = Cell_type)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + ylab("Relative Marker Expression") + xlab("Cell type") + geom_jitter(shape=".", position=position_jitter(0.2)) + ylim(-1.3, 2.7)
+
+print(p1+p2+p3)
+```
+
+We also sought to infer the gene expression patterns defining the expected transition from Epiblast, to primitive streak-like, to mesoderm-like populations. Though scRNA-seq is static data, capturing a snapshot of cells at a point in time, the presence of related cell types can still be used to reconstruct something like a developmental trajectory. For this purpose, we used pseudotime in a subset of PI-Epi, PS-like and Meso-like cells in an attempt to capture transcriptional signatures that resemble EMT in mesoderm formation, such as transitory expression of MESP2 and TBXT, and increasing expression of CDH2, LHX1 and HAND1.
+
+```{r Pseudo-time analysis of Mesoderm formation}
+# Subset
+ps_emt <- subset(hEE, idents = c("PS-like", "Meso-like", "PI-Epi"))
+ps_emt$Cell_type <- factor(ps_emt$Cell_type, levels = c("PI-Epi", "PS-like", "Meso-like")) # Set cluster order
+
+# Preprocess
+ps_emt <- ps_emt %>% 
+  NormalizeData(verbose = FALSE) %>%
+  FindVariableFeatures(verbose = FALSE) %>%
+  ScaleData(verbose = FALSE) %>%
+  RunPCA(verbose = FALSE)
+
+# Rank along PC1
+pca <- as.data.frame(ps_emt@reductions$pca@cell.embeddings)
+ps_emt$pc_1 <- pca[,"PC_1"]
+ps_emt$pseudotime_pc1 <- rank(ps_emt$pc_1)
+
+p1 <- DimPlot(ps_emt, reduction = "pca") + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) # Epiblast cells far exceed the other two, prompting us to randomly downsample to comparable size
+
+print(p1)
+
+set.seed(42)
+keep <- c(sample(colnames(subset(ps_emt, Cell_type == "PI-Epi")), size = (259+128), replace=F), colnames(subset(ps_emt, Cell_type == "PS-like" | Cell_type == "Meso-like"))) 
+ps_emt <- ps_emt[, keep]
+
+ps_emt <- ps_emt %>% 
+  NormalizeData(verbose = FALSE) %>%
+  FindVariableFeatures(verbose = FALSE) %>%
+  ScaleData(verbose = FALSE) %>%
+  RunPCA(verbose = FALSE)
+
+p2 <- DimPlot(ps_emt, reduction = "pca")
+
+pca <- as.data.frame(ps_emt@reductions$pca@cell.embeddings)
+ps_emt$pc_1 <- pca[, "PC_1", drop = FALSE]
+ps_emt$pseudotime <- rank(-ps_emt$pc_1)
+
+p3 <- ggplot(ps_emt@meta.data, aes(x = pseudotime,
+                          y = Cell_type, 
+                          colour = Cell_type)) +
+    geom_quasirandom(groupOnX = FALSE) + theme_classic() +
+    xlab("PC1") + ylab("Cell type") +
+    ggtitle("Cells ordered by PC1") + scale_color_manual(values=as.character(anno$colors), breaks = anno[anno$order %in% c("PS-like", "Meso-like", "PI-Epi"),]$order) + NoLegend()
+
+print(p2 + p3)
+```
+
+```{r Slingshot}
+sce <- slingshot(as.matrix(ps_emt@reductions$pca@cell.embeddings), clusterLabels = ps_emt$Cell_type)  
+
+# Plot Slingshot pseudotime vs cell stage. 
+print(ggplot(ps_emt@meta.data, aes(x = slingPseudotime(sce), y = Cell_type, 
+                              colour = Cell_type)) +
+    geom_quasirandom(groupOnX = FALSE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() +
+    xlab("Slingshot pseudotime") + ylab("Timepoint") +
+    ggtitle("Cells ordered by Slingshot pseudotime"))
+
+ps_emt$pseudotime_sling <- slingPseudotime(sce)
+
+ps_sce <- as.SingleCellExperiment(ps_emt)
+
+p1 <- plotExpression(ps_sce, c("CDH1"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p2 <- plotExpression(ps_sce, c("CDH2"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p3 <- plotExpression(ps_sce, c("TBXT"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p4 <- plotExpression(ps_sce, c("SNAI1"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p5 <- plotExpression(ps_sce, c("SNAI2"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p6 <- plotExpression(ps_sce, c("MMP2"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p7 <- plotExpression(ps_sce, c("MMP14"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p8 <- plotExpression(ps_sce, c("VIM"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p9 <- plotExpression(ps_sce, c("ZEB2"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p10 <- plotExpression(ps_sce, c("MESP1"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p11 <- plotExpression(ps_sce, c("LHX1"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p12 <- plotExpression(ps_sce, c("HAND1"), x = "pseudotime_sling", 
+               colour_by = "Cell_type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime") + NoLegend()
+
+
+p_list <- list(p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12)
+
+do.call("grid.arrange", c(p_list, ncol = 3)) 
+```
+
+## Conclusion
+
+In this notebook, we have documented the decisions made, and underlying rationale, in establishing our single-cell data in terms of its quality control, low-dimensional projection, and cell type assignment, as well as demonstrated some of the analyses performed in the original manuscript. Remaining analyses are also available in the article GitHub repository under https://github.com/Smith-Lab-YSCC/hExtra_embryoid. Please contact nicolas.dias@yale.edu, or berna.sozen@yale.edu, if you have questions or concerns about this analysis or its data.
+
+```{r Session Info}
+sessionInfo()
+```
