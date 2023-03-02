@@ -26,4 +26,4 @@ This repository contains the scripts used to generate the single-cell RNA-sequen
 
 ## Data Availability
 
-The original scRNA-seq dataset for the extra-embryoid can be found in the Gene Expression Omnibus (GEO) under accession code (TBD).
+The original scRNA-seq dataset for the extra-embryoid can be found in the Gene Expression Omnibus (GEO) under accession code (GSE208195).
