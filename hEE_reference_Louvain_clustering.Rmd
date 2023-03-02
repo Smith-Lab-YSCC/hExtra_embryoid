@@ -1,0 +1,159 @@
+---
+title: "Predroza et al., 2023 - Reference Louvain Clustering"
+author: "N. Dias"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r, include = FALSE}
+ref <- readRDS("L:/Smith_Lab/Collaborations/Sozen_lab/Reference/ref_all.rds")
+```
+
+```{r Clustering}
+library(Seurat)
+
+set.seed(42)
+DefaultAssay(ref) <- "integrated"
+ref <- ScaleData(ref, verbose = FALSE)
+ref <- RunPCA(ref, npcs = 30, verbose = FALSE)
+ref <- FindNeighbors(ref, reduction = "pca", dims = 1:30)
+ref <- FindClusters(ref, resolution = seq(0.2, 2, 0.2), verbose = FALSE)
+
+```
+
+## Resolution test
+
+```{r Annotation}
+suppressPackageStartupMessages(library(ComplexHeatmap))
+
+cell_number <- as.numeric(table(ref$new.identity))
+bars <- rowAnnotation(`Cells` = anno_barplot(log2(cell_number), axis_param = list(labels_rot = 0)), annotation_name_side = "top", annotation_name_rot = 0) 
+
+suppressPackageStartupMessages(library(circlize))
+col_fun = colorRamp2(c(-1,0,1), c("white", "gray", "black"))
+```
+
+
+> Resolution 0.2
+
+```{r res02}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.0.2))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 0.2", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+> Resolution 0.4
+
+```{r res04}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.0.4))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 0.4", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 0.6
+
+```{r res06}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.0.6))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 0.6", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 0.8
+
+```{r res08}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.0.8))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 0.8", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 1.0
+
+```{r res1}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.1))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 1.0", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 1.2
+
+```{r res12}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.1.2))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 1.2", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 1.4
+
+```{r res14}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.1.4))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 1.4", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 1.6
+
+```{r res16}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.1.6))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 1.6", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 1.8
+
+```{r res18}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.1.8))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 1.8", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Resolution 2.0
+
+```{r res20}
+library(ComplexHeatmap)
+table <- as.matrix(table(ref$new.identity, ref$integrated_snn_res.2))
+table <- t(scale(t(table)))
+
+Heatmap(table,  right_annotation =  bars, col = col_fun, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Resolution 2.0", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE)
+```
+
+> Cluster robustness
+
+```{r Clustree}
+suppressPackageStartupMessages(library(clustree))
+
+clustree(ref)
+```
+
+
+```{r}
+sessionInfo()
+```
+
