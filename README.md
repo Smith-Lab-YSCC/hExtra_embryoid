@@ -22,7 +22,7 @@ congenital pathologies.
 
 ## Structure
 
-This repository contains the scripts used to generate the single-cell RNA-sequencing figures presented in Pedroza et al., "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". Scripts are divided by main text and Extended Data.
+This repository contains the scripts used to generate the single-cell RNA-sequencing figures presented in Pedroza et al., "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". The analysis methods and underlying logic are described.
 
 ## Data Availability
 
