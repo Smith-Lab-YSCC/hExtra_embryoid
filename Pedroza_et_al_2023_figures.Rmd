@@ -135,10 +135,10 @@ draw(fig2a3)
 
 ```{r Fig 2C}
 # Format data
-f2c_data <- ref@meta.data %>% select(c("collapse", "orig.ident"))
+f2c_data <- ref@meta.data %>% select(c("Pedroza.annotation", "orig.ident"))
 f2c_data <- cbind(f2c_data, as.data.frame(ref@reductions$umap@cell.embeddings))
 
-fig2c <- ggplot(f2c_data) + geom_point(aes(UMAP_1, UMAP_2, fill = collapse, shape = orig.ident, alpha = 0.7)) + scale_shape_manual(values=c(21, 22, 23)) + scale_fill_manual(values = ref_anno, breaks = names(ref_anno)) + theme_void() + NoLegend()
+fig2c <- ggplot(f2c_data) + geom_point(aes(UMAP_1, UMAP_2, fill = Pedroza.annotation, shape = orig.ident, alpha = 0.7)) + scale_shape_manual(values=c(21, 22, 23)) + scale_fill_manual(values = ref_anno, breaks = names(ref_anno)) + theme_void() + NoLegend()
 
 fig2c
 
@@ -269,7 +269,7 @@ edf3c2 <- ggplot(data@meta.data, aes(x = pc1,
 edf3c2
 
 # D: Reference heatmap
-edfig3d_data <- as.matrix(table(ref$new.identity, ref$collapse))
+edfig3d_data <- as.matrix(table(ref$Rostovskaya.annotation, ref$Pedroza.annotation))
 edfig3d_data <- as.data.frame.matrix(t(scale(t(edfig3d_data))))
 edfig3d_data <- edfig3d_data[, names(ref_anno)]
 
@@ -281,9 +281,6 @@ draw(edfig3d)
 
 ```{r EDFig 3E/F}
 # E: CellTypist results heatmap
-
-celltypist_score$cell.ID <- rownames(celltypist_score)
-celltypist_score$Cell.type <- md$Cell.type
 
 edfig3e_data <- celltypist_score %>%
   select(-c("cell.ID", "predicted_labels", "majority_voting", "over_clustering", "conf_score")) %>%
@@ -301,7 +298,7 @@ draw(edfig3e)
 
 data <- FindVariableFeatures(data, assay = "RNA")
 
-ref_a <- AverageExpression(ref, features = VariableFeatures(data), assays = "RNA", group.by = "collapse")$RNA
+ref_a <- AverageExpression(ref, features = VariableFeatures(data), assays = "RNA", group.by = "Pedroza.annotation")$RNA
 dat_a <- AverageExpression(data, features = VariableFeatures(data), group.by = "Cell.type", assays = "RNA")$RNA
 
 dat_a <- dat_a[rownames(dat_a) %in% rownames(ref_a), ]
@@ -309,7 +306,7 @@ dat_a <- dat_a[rownames(dat_a) %in% rownames(ref_a), ]
 edfig3f_data <- cbind(ref_a, dat_a)
 edfig3f_data <- cosine(edfig3f_data)
 
-edfig3f_data <- edfig3f_data[as.character(unique(ref$collapse)), as.character(unique(data$Cell.type))]
+edfig3f_data <- edfig3f_data[as.character(unique(ref$Pedroza.annotation)), as.character(unique(data$Cell.type))]
 
 edfig3f <- Heatmap(t(cos_s), heatmap_legend_param = list(title = "Similarity"), column_title = "Cosine Similarity (Raw Score)", 
     column_title_gp = gpar(fontsize = 16, fontface = "bold"))
