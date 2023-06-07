@@ -1,6 +1,6 @@
 ---
 title: "hEE Data Analysis - Pedroza, Gassaloglu et al. 2023"
-author: "Nicolas Dias"
+author: "Dias, N."
 date: "12/15/2022"
 output:
   html_document:
