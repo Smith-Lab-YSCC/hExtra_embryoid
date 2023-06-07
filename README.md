@@ -22,7 +22,7 @@ congenital pathologies.
 
 ## Structure
 
-This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures, respectively, presented in Pedroza et al., "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". The analysis methods and logic underlying decisions are described within it.
+This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures presented in Pedroza et al., 2023: "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". The analysis methods and logic underlying decisions are described within it.
 
 ## Data Availability
 
