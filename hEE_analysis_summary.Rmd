@@ -1,5 +1,5 @@
 ---
-title: "hEE Data Analysis - Pedroza, Gassaloglu et al. 2022"
+title: "hEE Data Analysis - Pedroza, Gassaloglu et al. 2023"
 author: "Nicolas Dias"
 date: "12/15/2022"
 output:
@@ -677,7 +677,7 @@ do.call("grid.arrange", c(p_list, ncol = 3))
 
 ## Conclusion
 
-In this notebook, we have documented the decisions made, and underlying rationale, in establishing our single-cell data in terms of its quality control, low-dimensional projection, and cell type assignment, as well as demonstrated some of the analyses performed in the original manuscript. Remaining analyses are also available in the article GitHub repository under https://github.com/Smith-Lab-YSCC/hExtra_embryoid. Please contact nicolas.dias@yale.edu, or berna.sozen@yale.edu, if you have questions or concerns about this analysis or its data.
+In this notebook, we have documented the decisions made and underlying rationale in establishing our single-cell data regarding quality control, low-dimensional projection, and cell type assignment, as well as demonstrated some of the analyses performed in the original manuscript. Remaining analyses are also available in the article GitHub repository under https://github.com/Smith-Lab-YSCC/hExtra_embryoid. Please contact nicolas.dias@yale.edu, or berna.sozen@yale.edu, if you have questions or concerns about this analysis or its data.
 
 ```{r Session Info}
 sessionInfo()
