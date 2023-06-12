@@ -38,12 +38,9 @@ library(gridExtra) # Arranging plots
 Loading raw data and creating Seurat Objects.
 
 ```{r Raw data to Seurat}
-# Set data directory for convenience
-path <- "L:/Smith_Lab/Collaborations/Sozen_lab/"
-
 # Read in 10X output
-d4 <- Read10X(data.dir = paste0(path,"Data_Submission/D4/filtered_feature_bc_matrix"))
-d6 <- Read10X(data.dir = paste0(path,"Data_Submission/D6/filtered_feature_bc_matrix"))
+d4 <- Read10X(data.dir = "path/to/D4")
+d6 <- Read10X(data.dir = "path/to/D6")
 
 # Create Seurat objects, append metadata and barcodes with timepoint information
 d4 <- CreateSeuratObject(counts = d4, project = "D4", min.cells = 5, min.features = 50)
@@ -175,8 +172,10 @@ print(FeaturePlot(merge.integrated, features = c("GATA3", "GATA6", "SOX2", "HESX
 
 To further classify these major compartments, we attempted label transfer using an _in vivo_ human embryo scRNA-seq reference from Xiang et al. 2019. Consistent with our preliminary observations, the major compartments were classified as "Epiblast" and "Hypoblast" using this approach. We harnessed these classifications to subset our data for sub-clustering.
 
+The data for Xiang et al. 2019 is available under GEO accession GSE136447.
+
 ```{r Label Transfer}
-xiang <- readRDS(paste0(path, "Xiang/xiang_seurat.rds"))
+#load("path/to/xiang_seurat)
 
 x_anchors <- FindTransferAnchors(reference = xiang, query = merge.integrated, dims = 1:30, reference.reduction = "pca", k.filter = NA, verbose = FALSE) # Too few cells to filter anchors
 predictions_xiang <- TransferData(anchorset = x_anchors, refdata = xiang$Cell_type, dims = 1:30, verbose = FALSE)
