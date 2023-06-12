@@ -1,7 +1,6 @@
 ---
-title: "hEE Data Analysis - Pedroza, Gassaloglu et al. 2023"
+title: "Pedroza, Gassaloglu et al. 2023 - hEE Data Analysis Summary"
 author: "Dias, N."
-date: "12/15/2022"
 output:
   html_document:
     df_print: paged
@@ -15,7 +14,7 @@ setupKnitr(autoprint=TRUE)
 
 # Introduction
 
-This is a notebook documenting our analysis of two single-cell RNA-sequencing (scRNA-seq) samples for a novel _in vitro_ human Extra-Embryoid (hEE) model. The outcome of this work was originally reported in Pedroza, Gassaloglu et al. 2022. The data used in this analysis is available at GEO accession GSE208195. 
+This is a notebook documenting our analysis of two single-cell RNA-sequencing (scRNA-seq) samples for a novel _in vitro_ human Extra-Embryoid (hEE) model. The outcome of this work was originally reported in Pedroza, Gassaloglu et al. 2023. The data used in this analysis is available at GEO accession GSE208195. 
 
 Required libraries.
 

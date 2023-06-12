@@ -1,0 +1,592 @@
+---
+title: "Pedroza, Gassaloglu et al. 2023 - Figure Script"
+author: "Dias, N."
+---
+
+```{r libraries}
+# Libraries
+library(Seurat)
+library(dplyr)
+library(monocle3)
+library(plotly)
+library(SeuratWrappers)
+library(ggplot2)
+library(ComplexHeatmap)
+library(viridis)
+library(presto)
+library(stringr)
+library(ggrastr)
+library(slingshot)
+library(ggbeeswarm)
+library(scater)
+library(gridExtra)
+library(lsa)
+library(plyr)
+library(EnhancedVolcano)
+library(magrittr)
+```
+
+```{r colors and annotations}
+# Colors and cluster order
+cluster_colors <- c("#85C1E9", "#B03A2E", "#F1948A", "#AF7AC5", "#F5B041", "#808B96", "#2471A3", "#229954")
+cluster_order <- c("PI-Epi", "AME", "PI-Epi.L", "PS-like", "Mesoderm-like", "G1 Hypoblast", "G2M/S Hypoblast", "AVE-like")
+anno <- data.frame(colors = cluster_colors, order = cluster_order)
+colors <- anno %>% arrange(order) %>% select("colors")
+colors <- colors$colors
+
+bmp_colors <- c("#ff6666", "#006bb3", "#b3ecff","#e6fff2" )  
+
+# Reference colors
+ref_anno = c(
+  "hsTE" = "#fbb1bd", 
+  "CTB" = "#ff85a1", 
+  "EVT" = "#ff477e", 
+  "STB" = "#ff0a54",
+  "PreEPI" = "#97d7ff", 
+  "PostEPI" = "#009dff", 
+  "Gast" = "#0088ff", 
+  "hsICM" = "#006de9",
+  "Axial Mesoderm" = "#dbb42c", 
+  "Nascent Mesoderm" = "#ffe169", 
+  "Emergent Mesoderm" = "#b69121", 
+  "Advanced Mesoderm" = "#a47e1b",
+  "YS Mesoderm" = "#eda268", 
+  "cyEXMC" = "#a85311",
+  "Blood" = "#522500",
+  "YS Endoderm" = "#10451d", 
+  "Hypoblast" = "#208b3a", 
+  "PrE" = "#4ad66d",
+  "AME_NNE" = "#c52233",
+  "DE" = "#92e6a7",
+  "PGC" = "#310055"
+)
+```
+
+Required data:
+1. Seurat object + metadata for hEE data and reference
+2. Celltypist scores
+
+The objects used for this script are available under the "processed data" folder. For unprocessed hEE barcodes, features and counts, refer to GEO accession GSE208195. 
+
+```{r load data}
+# load(/path/to/hEE.Robj)
+# load(/path/to/Ref.RObj)
+# load(/path/to/celltypist_score.RObj)
+```
+
+
+```{r Fig 2A}
+# Calculate 3 dimensional UMAP; this may differ slightly from the article figure
+hEE <- hEE %>% 
+  RunUMAP(dims = 1:20, n.components = 3L, assay = "integrated", verbose = FALSE)
+
+# We used a Seurat-to-CDS conversion from SeuratWrappers and the monocle3 package to plot the 3D UMAP
+
+cds <- as.cell_data_set(hEE)
+cds <- cluster_cells(cds, resolution=1e-4) # Monocle requires additional clustering for downstream functions; this step is required but has no bearing on the reported figure
+
+fig2a <- plot_cells_3d(cds, color_cells_by = "Cell.type", show_trajectory_graph = FALSE, color_palette = colors, alpha = 0.3, cell_size = 20)
+fig2a
+
+# Piechart
+fig2a2 <- ggplot(hEE@meta.data, aes(Timepoint, fill = Cell.type)) + # Map x to developmental stage
+  geom_bar(position = "fill") + 
+  coord_polar("y", start=1) + 
+  theme_classic() + ggtitle("") + ylab("") + 
+  xlab("") + 
+  scale_fill_manual(values = anno$colors, breaks = anno$order)
+fig2a2
+
+## Cell type marker Heatmap
+
+# Calculate markers and select significant genes
+markers <- wilcoxauc(hEE, 'Cell.type', assay = 'data')
+sig_markers <- markers[markers$padj < 0.01, ]
+sig_markers <- sig_markers[order(sig_markers$group),]
+sig_markers$group <- str_replace(sig_markers$group, "/", "_")
+
+# Select top 100 marker genes
+top_markers <- top_markers(sig_markers, n = 100, auc_min = 0.5, pct_in_min = 20, pct_out_max = 20)
+
+# Select unique top 20 for each cell type
+genes <- unique(as.vector(as.matrix(top_markers[1:20, str_replace(anno$order, "/", "_")])))
+
+# Format data
+mat <- AverageExpression(hEE, assays = "RNA", features = genes, group.by = "Cell.type")$RNA
+mat <- t(scale(t(mat[ , anno$order])))
+cluster_anno <- factor(anno$order, levels = anno$order)
+
+col_fun = circlize::colorRamp2(c(-1, 0, 2.5), viridis(3))
+
+
+fig2a3 <- Heatmap(mat, name = "Expression",  
+        column_split = factor(cluster_anno, levels = anno$order),
+        cluster_columns = FALSE,
+        show_column_dend = FALSE,
+        cluster_column_slices = FALSE,
+        column_title_gp = gpar(fontsize = 8),
+        column_gap = unit(0.8, "mm"),
+        cluster_rows = FALSE,
+        show_row_dend = FALSE,
+        col = col_fun,
+        row_names_gp = gpar(fontsize = 6),
+        column_title_rot = 90,
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno$colors))),
+        show_column_names = FALSE,
+        use_raster = TRUE,
+        raster_quality = 10,
+        show_heatmap_legend = TRUE,
+        show_row_names = TRUE)
+
+draw(fig2a3)
+```
+
+```{r Fig 2C}
+# Format data
+f2c_data <- Ref@meta.data %>% select(c("Pedroza.annotation", "orig.ident"))
+f2c_data <- cbind(f2c_data, as.data.frame(Ref@reductions$umap@cell.embeddings))
+
+fig2c <- ggplot(f2c_data) + geom_point(aes(UMAP_1, UMAP_2, fill = Pedroza.annotation, shape = orig.ident, alpha = 0.7)) + scale_shape_manual(values=c(21, 22, 23)) + scale_fill_manual(values = ref_anno, breaks = names(ref_anno)) + theme_void() + NoLegend()
+
+fig2c
+
+# Reference mapping UMAP
+
+background <- as.data.frame(Ref@reductions$umap@cell.embeddings)
+foreground <- as.data.frame(hEE@reductions$Ref.umap@cell.embeddings)
+foreground$Cell.type <- hEE$Cell.type
+
+fig2c2 <- rasterize(ggplot() + geom_point(data = background, aes(x=UMAP_1, y=UMAP_2), color='gray90', size=2, alpha=0.5) + geom_point(data = foreground[sample(nrow(foreground)),], aes(x = refUMAP_1, y = refUMAP_2, fill = Cell.type), size=2, alpha = 1, shape = 21, stroke = 0.3, color = "black") + theme_void() + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + ggtitle(""), dpi = 600) + NoLegend()
+fig2c2
+```
+
+```{r Fig 4F}
+# Subset to relevant cell types
+fig4_data <- subset(hEE, idents = c("PS-like", "Mesoderm-like", "PI-Epi"))
+fig4_data$Cell.type <- factor(fig4_data$Cell.type, levels = c("PI-Epi", "PS-like", "Mesoderm-like"))
+
+# Downsample PI-Epi to the size of Mesoderm-like + PS-like
+set.seed(42)
+keep <- c(sample(colnames(subset(fig4_data, Cell.type == "PI-Epi")), size = (259+128), replace=F), colnames(subset(fig4_data, Cell.type == "PS-like" | Cell.type == "Mesoderm-like"))) 
+fig4_data <- fig4_data[, keep]
+
+# Pre-processing
+fig4_data <- fig4_data %>% 
+  NormalizeData(verbose = FALSE) %>%
+  FindVariableFeatures(verbose = FALSE) %>%
+  ScaleData(verbose = FALSE) %>%
+  RunPCA(verbose = FALSE)
+
+
+# Calculate trajectory for pseudotime
+fig4_data$pseudotime <- slingPseudotime(sce)
+
+fig4 <- as.SingleCellExperiment(fig4_data)
+
+sce <- slingshot(fig4, clusterLabels = fig4_data$Cell.type, reducedDim = "PCA")
+
+# Plot may be rotated 
+colors <- rainbow(50, alpha = 1)
+plot(reducedDim(sce), col = colors[cut(slingPseudotime(sce), breaks=50)], pch=16, asp = 1)
+lines(SlingshotDataSet(sce), lwd = 2, type = 'curve', col = 'black')
+
+p1 <- plotExpression(fig4, c("CDH1"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p2 <- plotExpression(fig4, c("CDH2"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p3 <- plotExpression(fig4, c("VIM"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p4 <- plotExpression(fig4, c("LHX1"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p5 <- plotExpression(fig4, c("HAND1"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p_list <- list(p1, p2, p3, p4, p5)
+
+do.call("grid.arrange", c(p_list, ncol = 3)) 
+```
+
+```{r EDFig 3A/B}
+# A: UMAP by timepoint
+edf3a <- DimPlot(hEE, group.by = "Cell.type", split.by = "Timepoint", reduction = "umap") + scale_color_manual(values = anno$colors, breaks = anno$order)
+edf3a
+
+# B: Top markers by cell state; this may be slow
+markers <- wilcoxauc(hEE, 'Cell.type', assay = 'data')
+markers <- top_markers(markers, n = 100, auc_min = 0.5, pct_in_min = 20, pct_out_max = 20)
+markers <- markers[ , c("rank", anno$order)]
+markers <- markers %>%
+  select(-rank) %>% 
+  unclass() %>% 
+  stack() %>%
+  pull(values) %>%
+  unique() %>%
+   .[!is.na(.)]
+
+edfig3b <- hEE[["RNA"]]@hEE[markers, ] %>% as.matrix()
+edfig3b <- t(scale(t(edfig3b)))
+
+col_fun = circlize::colorRamp2(c(-0.6, 0, 2.5), viridis(3))
+
+edfig3b_heat <- Heatmap(edfig3b, name = "Expression",  
+        column_split = factor(hEE$Cell.type, levels = anno$order),
+        cluster_columns = FALSE,
+        show_column_dend = FALSE,
+        cluster_column_slices = TRUE,
+        column_title_gp = gpar(fontsize = 8),
+        column_gap = unit(0.8, "mm"),
+        cluster_rows = FALSE,
+        show_row_dend = FALSE,
+        col = col_fun,
+        row_names_gp = gpar(fontsize = 4),
+        column_title_rot = 90,
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno$colors))),
+        show_column_names = FALSE,
+        use_raster = TRUE,
+        raster_quality = 4,
+        show_heatmap_legend = FALSE,
+        show_row_names = FALSE)
+
+edfig3b_heat
+```
+
+```{r EDFig 3C/D}
+# C: Cells divided by PC
+edf3c <- DimPlot(hEE, reduction = "pca", group.by = "Cell.type", shuffle = TRUE) + scale_color_manual(values = anno$colors, breaks = anno$order)
+edf3c
+
+hEE$pc_1 <- as.data.frame(hEE@reductions$pca@cell.embeddings)[, "PC_1", drop = FALSE]
+hEE$pc1 <- rank(hEE$pc_1)
+
+edf3c2 <- ggplot(hEE@meta.data, aes(x = pc1,
+                          y = Cell.type, 
+                          colour = Cell.type)) +
+    geom_quasirandom(groupOnX = FALSE) + theme_classic() +
+    xlab("PC1") + ylab("Cell type") +
+    ggtitle("") + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + NoLegend() + theme_minimal() + coord_flip()
+
+edf3c2
+
+# D: Reference heatmap
+edfig3d_data <- as.matrix(table(Ref$Rostovskaya.annotation, Ref$Pedroza.annotation))
+edfig3d_data <- as.data.frame.matrix(t(scale(t(edfig3d_data))))
+edfig3d_data <- edfig3d_data[, names(ref_anno)]
+
+edfig3d <- Heatmap(edfig3d_data,  right_annotation =  t2, col = col_fun1, show_row_dend = FALSE, show_column_dend = FALSE, show_heatmap_legend = FALSE, border_gp = gpar(col = "black", lty = 1), rect_gp = gpar(col = "white", lwd = 1), column_title = "Reference Annotation",
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"), row_names_gp = gpar(fontsize = 8), cluster_columns = FALSE, bottom_annotation = t3)
+
+draw(edfig3d)
+```
+
+```{r EDFig 3E/F}
+# E: CellTypist results heatmap
+
+edfig3e_data <- celltypist_score %>%
+  select(-c("cell.ID", "predicted_labels", "majority_voting", "over_clustering", "conf_score")) %>%
+    group_by(Cell.type) %>% 
+    summarise_each(funs(mean)) %>% as.data.frame()
+
+rownames(edfig3e_data) <- edfig3e_data$Cell.type
+edfig3e_data <- as.matrix(edfig3e_data[,-1])
+
+edfig3e <- Heatmap(t(scale(t(edfig3e_data))), heatmap_legend_param = list(title = "Score"), column_title = "CellTypist Label Transfer")
+
+draw(edfig3e)
+
+# F: Cosine Similarity heatmap
+
+hEE <- FindVariableFeatures(hEE, assay = "RNA")
+
+ref_a <- AverageExpression(Ref, features = VariableFeatures(hEE), assays = "RNA", group.by = "Pedroza.annotation")$RNA
+dat_a <- AverageExpression(hEE, features = VariableFeatures(hEE), group.by = "Cell.type", assays = "RNA")$RNA
+
+dat_a <- dat_a[rownames(dat_a) %in% rownames(ref_a), ]
+
+edfig3f_data <- cbind(ref_a, dat_a)
+edfig3f_data <- cosine(edfig3f_data)
+
+edfig3f_data <- edfig3f_data[as.character(unique(Ref$Pedroza.annotation)), as.character(unique(hEE$Cell.type))]
+
+edfig3f <- Heatmap(t(cos_s), heatmap_legend_param = list(title = "Similarity"), column_title = "Cosine Similarity (Raw Score)", 
+    column_title_gp = gpar(fontsize = 16, fontface = "bold"))
+
+draw(edfig3f)
+```
+
+```{r EDFig 3G}
+# G: Module scores for Definitive Endoderm (DE) vs. Primitive Endoderm (PE)
+hEE <- AddModuleScore(hEE, features = list(c("CD48", "PTN", "KIT", "EGF")), name = "DE_markers")
+hEE <- AddModuleScore(hEE, features = list(c("APOC1", "PODXL", "VCAN", "APOE")), name = "PE_markers")
+
+# Linear comparison and binarization
+hEE$Endo_character <- hEE$PE_markers1 - hEE$DE_markers1
+hEE$Endo_bi <- ifelse(hEE$Endo_character > 0, "PE", "DE")
+
+
+# Box plots
+edfig3g1 <- ggplot(hEE@meta.data, aes(x = Cell.type, y = DE_markers1, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + ylab("Module Score DE") + xlab("Cell type") + geom_jitter(shape=".", position=position_jitter(0.2)) + ylim(-1.3, 2.7) + NoLegend()
+
+
+edfig3g2 <- ggplot(hEE@meta.data, aes(x = Cell.type, y = PE_markers1, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + scale_fill_manual(values=as.character(anno$colors), breaks = anno$order) + theme_classic() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + ylab("Module Score Ex.En") + xlab("Cell type") + geom_jitter(shape=".", position=position_jitter(0.2)) + ylim(-1.3, 2.7) + NoLegend()
+
+p_list4 <- list(edfig3g1, edfig3g2)
+
+do.call("grid.arrange", c(p_list4, ncol = 2))
+
+# Bar plot
+edfig3g3_data <- hEE@meta.data[hEE$Cell.type == "G1 Hypoblast" | hEE$Cell.type == "G2M/S Hypoblast" | hEE$Cell.type == "AVE-like", c("Endo_bi", "Cell.type")]
+
+edfig3g3 <- ggplot(edfig3g3_data) + geom_bar(aes(x = Endo_bi, y = after_stat(prop), group = 1), stat = "count") + scale_y_continuous(labels = scales::percent_format()) + facet_wrap( ~ Cell.type) + theme_minimal() + ylab("Proportion (%)") + xlab("Relative Marker Expression")
+
+edfig3g3
+```
+
+```{r EDFig 5}
+## BMP Analysis
+
+# Box plots
+bmp_sub <- as.data.frame(t(as.data.frame(GetAssayData(object = hEE, assay = "RNA", slot = "data")[c("BMP4", "BMP2", "BMPR1A"),])))
+bmp_sub$cell_ID <- rownames(bmp_sub)
+bmp_sub <- join(bmp_sub, hEE@meta.data, by = "cell_ID")
+rownames(bmp_sub) <- bmp_sub$cell_ID
+
+bmp2_d4 <- ggplot(data = subset(bmp_sub, Timepoint == "D4"), aes(x = Cell.type, y = BMP2, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D4") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.5) + NoLegend()
+
+bmp2_d6 <- ggplot(data = subset(bmp_sub, Timepoint == "D6"), aes(x = Cell.type, y = BMP2, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D6") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.3) + NoLegend()
+
+bmp4_d4 <- ggplot(data = subset(bmp_sub, Timepoint == "D4"), aes(x = Cell.type, y = BMP4, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D4") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.5) + NoLegend()
+
+bmp4_d6 <- ggplot(data = subset(bmp_sub, Timepoint == "D6"), aes(x = Cell.type, y = BMP4, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D6") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.3) + NoLegend()
+
+bmpr1a_d4 <- ggplot(data = subset(bmp_sub, Timepoint == "D4"), aes(x = Cell.type, y = BMPR1A, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D4") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.5) + NoLegend()
+
+bmpr1a_d6 <- ggplot(data = subset(bmp_sub, Timepoint == "D6"), aes(x = Cell.type, y = BMPR1A, fill = Cell.type)) + 
+  geom_boxplot(outlier.shape = NA) + geom_jitter(color="black", size=0.4, alpha=0.7) + theme_minimal() + RotatedAxis() + ggtitle("BMP2", "D6") + scale_fill_manual(values = anno$colors, breaks = anno$order) + ylim(-0.1, 3.3) + NoLegend()
+
+bmpr1a_d4 + bmpr1a_d6
+
+p_list5 <- list(bmp2_d4, bmp2_d6, bmp4_d4, bmp4_d6, bmpr1a_d4, bmpr1a_d6)
+
+do.call("grid.arrange", c(p_list5, ncol = 2))
+
+# Bar plots
+bmp_sub$BMP2_status <- ifelse(bmp_sub$BMP2 >= 0.5 & bmp_sub$BMPR1A >= 0.5, "Double positive", ifelse(bmp_sub$BMP2 >= 0.5, "BMP2 Positive", ifelse(bmp_sub$BMPR1A >= 0.5, "BMPR1A positive", "Negative")))
+
+bmp_sub$BMP4_status <- ifelse(bmp_sub$BMP4 >= 0.5 & bmp_sub$BMPR1A >= 0.5, "Double positive", ifelse(bmp_sub$BMP4 >= 0.5, "BMP4 Positive", ifelse(bmp_sub$BMPR1A >= 0.5, "BMPR1A positive", "Negative")))
+
+bmp_sub_d4 <- bmp_sub[bmp_sub$Timepoint == "D4", ]
+bmp_sub_d4$Cell.type <- factor(bmp_sub_d4$Cell.type, levels = c("AME", "PI-Epi.L", "PI-Epi", "PS-like", "AVE-like", "G1 Hypoblast", "G2M/S Hypoblast", "Mesoderm-like"))
+bmp_sub_d6 <- bmp_sub[bmp_sub$Timepoint == "D6", ]
+bmp_sub_d6$Cell.type <- factor(bmp_sub_d6$Cell.type, levels = c("AME", "PI-Epi.L", "PI-Epi", "PS-like", "AVE-like", "G1 Hypoblast", "G2M/S Hypoblast", "Mesoderm-like"))
+
+bmp2_d4 <- as.data.frame(prop.table(table(bmp_sub_d4$BMP2_status, bmp_sub_d4$Cell.type), margin = 2))
+colnames(bmp2_d4) <- c("BMP2_Status", "Cell.type", "Fraction")
+
+bmp2_d6 <- as.data.frame(prop.table(table(bmp_sub_d6$BMP2_status, bmp_sub_d6$Cell.type), margin = 2))
+colnames(bmp2_d6) <- c("BMP2_Status", "Cell.type", "Fraction")
+
+bmp4_d4 <- as.data.frame(prop.table(table(bmp_sub_d4$BMP4_status, bmp_sub_d4$Cell.type), margin = 2))
+colnames(bmp4_d4) <- c("BMP4_Status", "Cell.type", "Fraction")
+
+bmp4_d6 <- as.data.frame(prop.table(table(bmp_sub_d6$BMP4_status, bmp_sub_d6$Cell.type), margin = 2))
+colnames(bmp4_d6) <- c("BMP4_Status", "Cell.type", "Fraction")
+
+b2_4 <- ggplot(bmp2_d4, aes(x = Cell.type, y = Fraction, fill = BMP2_Status)) + geom_col() + scale_fill_manual(values = bmp_colors) + theme_minimal() + RotatedAxis() + ggtitle("BMP2/BMPR1A", "D4") + NoLegend() + xlab("") + ylim(0, 1)
+
+b2_6 <- ggplot(bmp2_d6, aes(x = Cell.type, y = Fraction, fill = BMP2_Status)) + geom_col() + scale_fill_manual(values = bmp_colors) + theme_minimal() + RotatedAxis() + ggtitle("BMP2/BMPR1A", "D6") + NoLegend() + xlab("") + ylim(0, 1)
+
+b4_4 <- ggplot(bmp4_d4, aes(x = Cell.type, y = Fraction, fill = BMP4_Status)) + geom_col() + scale_fill_manual(values = bmp_colors) + theme_minimal() + RotatedAxis() + ggtitle("BMP4/BMPR1A", "D4") + NoLegend() + xlab("") + ylim(0, 1)
+
+b4_6 <- ggplot(bmp4_d6, aes(x = Cell.type, y = Fraction, fill = BMP4_Status)) + geom_col() + scale_fill_manual(values = bmp_colors) + theme_minimal() + RotatedAxis() + ggtitle("BMP4/BMPR1A", "D6") + NoLegend() + xlab("") + ylim(0, 1)
+
+p_list52 <- list(b2_4, b2_6, b4_4, b4_6)
+
+do.call("grid.arrange", c(p_list52, ncol=2))
+```
+
+```{r EDFig 7}
+# Pathway Heatmaps
+
+# Genes
+fgf <- c("FGF1", "FGF2", "FGF3", "FGF4", "FGF5", "FGF6", "FGF7", "FGF8", "FGF9", "FGF10", "FGF11", "FGF12", "FGF13", "FGF14", "FGF15", "FGF16", "FGF17", "FGF18", "FGF19", "FGF20", "FGF21", "FGF22", "FGF23", "SPRY2", "FGFR1", "FGFR2", "FGFR3", "FGFR4", "PDGFRA", "PDGFRB", "IGF1R", "EGFR")
+mapk <- c('MAP4K5', 'MAP4K4', 'MAP4K3', 'MAP4K2', 'MAP4K1', 'MAP3K9', 'MAP3K8', 'MAP3K7', 'MAP3K6', 'MAP3K5', 'MAP3K3', 'MAP3K2', 'MAP3K15', 'MAP3K14', 'MAP3K13', 'MAP3K12', 'MAP3K11', 'MAP3K10', 'MAP3K1', 'MAP2K7', 'MAP2K6', 'MAP2K5', 'MAP2K4', 'MAP2K2', 'MAP2K1', 'MAPK6', 'MAPK7', 'MAPK4', 'MAPK1', 'MAPK3', 'MAPK15', 'MAPK14', 'MAPK13', 'MAPK12', 'MAPK11', 'MAPK10', 'MAPK9')
+wnt <- c('WNT9B', 'WNT8B', 'WNT8A', 'WNT7B', 'WNT7A', 'WNT6', 'WNT5B', 'WNT5A', 'WNT4', 'WNT3A', 'WNT3', 'WNT2B', 'WNT2', 'WNT16', 'WNT11', 'WNT10B', 'WNT10A', 'WNT1', 'LEF1', 'CTNNB1', 'CSK3A', 'CSK3B', 'TCF7', 'TCF7L2', 'TCF7L1', 'TCF23', 'TCF21', 'TCF20', 'TCF19', 'TCF15', 'FZD8', 'FZD7', 'FZD6', 'FZD5', 'FZD4', 'FZD3', 'DKKL1', 'DKK4', 'DKK3', 'DKK2', 'DKK1', 'CER1')
+tgfnodal <- c('NODAL', 'TGFA', 'TGFB1', 'TGFB2', 'TGFB3', 'SMAD2', 'SMAD3', 'SMAD4', 'SMAD7', 'FURIN', 'INHBE', 'INHBC', 'INHBA', 'PCSK1', 'PCSK2', 'PCSK3', 'PCSK4', 'PCSK5', 'PCSK6', 'PCSK7', 'PCSK8', 'PCSK9', 'SP1',
+'TGFBR1', 'TGFBR2', 'TGFBR3', 'TGFB1', 'TGFB2', 'ACVR2B', 'ACVR2A', 'ACVR1C', 'ACVR1B')
+
+# Find average expression per cell type for chosen genes
+mat_1 <- AverageExpression(subset(hEE, Timepoint == "D4" & Cell.type %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), assays = "RNA", features = wnt, group.by = "Cell.type")$RNA 
+mat_1 <- t(scale(t(mat_1[,anno$order[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')]]))) 
+mat_1[is.na(mat_1)] <- 0
+
+mat_2 <- AverageExpression(subset(hEE, Timepoint == "D4" & Cell.type %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), assays = "RNA", features = tgfnodal, group.by = "Cell.type")$RNA 
+mat_2 <- t(scale(t(mat_2[,anno$order[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')]])))
+mat_2[is.na(mat_2)] <- 0
+
+mat_3 <- AverageExpression(subset(hEE, Timepoint == "D4" & Cell.type %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), assays = "RNA", features = mapk, group.by = "Cell.type")$RNA 
+mat_3 <- t(scale(t(mat_3[,anno$order[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')]])))
+mat_3[is.na(mat_3)] <- 0
+
+mat_4 <- AverageExpression(subset(hEE, Timepoint == "D4" & Cell.type %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), assays = "RNA", features = fgf, group.by = "Cell.type")$RNA 
+mat_4 <- t(scale(t(mat_4[,anno$order[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')]])))
+mat_4[is.na(mat_4)] <- 0
+
+# Set order of columns
+cluster_anno <- factor(c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'), levels = c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'))
+
+# Color function
+col_fun = colorRamp2(c(-1.2, 0, 1.6), viridis(3))
+
+ht_71 <- Heatmap(mat_1, 
+              name = "Expression",  
+        column_split = factor(cluster_anno, c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), 
+        cluster_columns = FALSE, # Clusters columns (cell type)?
+        show_column_dend = FALSE, # Show dendogram for column clustering?
+        column_title_gp = gpar(fontsize = 8), # Font size for column titles
+        column_title_rot = 0, # Rotate column titles
+        column_title = "WNT",
+        column_gap = unit(0.8, "mm"), # Set space between the columns 
+        cluster_rows = TRUE, # Cluster rows?
+        show_row_dend = TRUE, # Show dendogram for row clustering?
+        col = col_fun, # Set color function for the heatmap
+        row_names_gp = gpar(fontsize = 6), # Font size for row names
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'), ]$colors))),
+        show_column_names = TRUE,
+        use_raster = FALSE, 
+        show_heatmap_legend = TRUE,
+        show_row_names = TRUE)
+
+
+p71 = draw(ht_71)
+
+ht_72 <- Heatmap(mat_2, 
+              name = "Expression",  
+        column_split = factor(cluster_anno, c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), 
+        cluster_columns = FALSE, # Clusters columns (cell type)?
+        show_column_dend = FALSE, # Show dendogram for column clustering?
+        column_title_gp = gpar(fontsize = 8), # Font size for column titles
+        column_title_rot = 0, # Rotate column titles
+        column_title = "TGFB/NODAL",
+        column_gap = unit(0.8, "mm"), # Set space between the columns 
+        cluster_rows = TRUE, # Cluster rows?
+        show_row_dend = TRUE, # Show dendogram for row clustering?
+        col = col_fun, # Set color function for the heatmap
+        row_names_gp = gpar(fontsize = 6), # Font size for row names
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'), ]$colors))),
+        show_column_names = TRUE,
+        use_raster = FALSE, 
+        show_heatmap_legend = TRUE,
+        show_row_names = TRUE)
+
+
+p72 = draw(ht_72)
+
+ht_73 <- Heatmap(mat_3, 
+              name = "Expression",  
+        column_split = factor(cluster_anno, c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), 
+        cluster_columns = FALSE, # Clusters columns (cell type)?
+        show_column_dend = FALSE, # Show dendogram for column clustering?
+        column_title_gp = gpar(fontsize = 8), # Font size for column titles
+        column_title_rot = 0, # Rotate column titles
+        column_title = "MAPK",
+        column_gap = unit(0.8, "mm"), # Set space between the columns 
+        cluster_rows = TRUE, # Cluster rows?
+        show_row_dend = TRUE, # Show dendogram for row clustering?
+        col = col_fun, # Set color function for the heatmap
+        row_names_gp = gpar(fontsize = 6), # Font size for row names
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'), ]$colors))),
+        show_column_names = TRUE,
+        use_raster = FALSE, 
+        show_heatmap_legend = TRUE,
+        show_row_names = TRUE)
+
+
+p73 = draw(ht_73)
+
+ht_74 <- Heatmap(mat_4, 
+              name = "Expression",  
+        column_split = factor(cluster_anno, c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast')), 
+        cluster_columns = FALSE, # Clusters columns (cell type)?
+        show_column_dend = FALSE, # Show dendogram for column clustering?
+        column_title_gp = gpar(fontsize = 8), # Font size for column titles
+        column_title_rot = 0, # Rotate column titles
+        column_title = "WNT",
+        column_gap = unit(0.8, "mm"), # Set space between the columns 
+        cluster_rows = TRUE, # Cluster rows?
+        show_row_dend = TRUE, # Show dendogram for row clustering?
+        col = col_fun, # Set color function for the heatmap
+        row_names_gp = gpar(fontsize = 6), # Font size for row names
+        top_annotation = HeatmapAnnotation(foo = anno_block(gp = gpar(fill = anno[anno$order %in% c("PI-Epi", 'PI-Epi.L', 'G1 Hypoblast', 'G2M/S Hypoblast'), ]$colors))),
+        show_column_names = TRUE,
+        use_raster = FALSE, 
+        show_heatmap_legend = TRUE,
+        show_row_names = TRUE)
+
+
+p74 = draw(ht_74)
+
+p71
+p72
+p73
+p74
+```
+
+```{r EDFig 8}
+# Volcano Plot for DGE Hypoblast vs AVE-like
+ave_hypo <- subset(hEE, idents = c("AVE-like", "G1 Hypoblast", "G2M/S Hypoblast"))
+ave_markers <- FindMarkers(ave_hypo, ident.1 = "AVE-like")
+
+edf8 <- EnhancedVolcano(ave_markers,
+    lab = rownames(ave_markers),
+    x = 'avg_log2FC',
+    y = 'p_val_adj', title = "Hypoblast- vs AVE-like", subtitle = "", FCcutoff = 1)
+
+edf8
+```
+
+```{r EDFig 10}
+p101 <- plotExpression(fig4, c("TBXT"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p102 <- plotExpression(fig4, c("SNAI1"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p103 <- plotExpression(fig4, c("SNAI2"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p104 <- plotExpression(fig4, c("ZEB2"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p105 <- plotExpression(fig4, c("MMP2"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p106 <- plotExpression(fig4, c("MMP14"), x = "pseudotime", 
+               colour_by = "Cell.type", show_violin = FALSE,
+               show_smooth = TRUE) + scale_color_manual(values=as.character(anno$colors), breaks = anno$order) + xlab("Pseudotime")+ NoLegend()
+
+p_list10 <- list(p101, p102, p103, p104, p105, p106)
+
+do.call("grid.arrange", c(p_list10, ncol = 2)) 
+```
+

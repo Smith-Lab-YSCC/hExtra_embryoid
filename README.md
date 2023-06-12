@@ -1,4 +1,5 @@
-# hExtra_embryoid
+# 	Human Post-Implantation Development in vitro by de novo Embryonic and Extra-Embryonic Lineage Patterning
+Pedroza, Gassaloglu et al., 2023
 
 ## Abstract
 Investigating human development is a significant scientific challenge due to the
@@ -22,7 +23,7 @@ congenital pathologies.
 
 ## Structure
 
-This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures, respectively, presented in Pedroza et al., "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". The analysis methods and logic underlying decisions are described within it.
+This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures presented in Pedroza et al., 2023: "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". Analysis methods and logic underlying decisions are described within hEE_analysis_summary.
 
 ## Data Availability
 

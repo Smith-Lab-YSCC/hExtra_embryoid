@@ -1,6 +1,6 @@
 ---
-title: "Predroza et al., 2023 - Reference Louvain Clustering"
-author: "N. Dias"
+title: "Pedroza, Gassaloglu et al. 2023 - Reference Louvain Clustering"
+author: "Dias, N."
 output:
   html_document:
     df_print: paged
