@@ -1,4 +1,4 @@
-# 	HUMAN POST-IMPLANTATION DEVELOPMENT IN VITRO BY DE NOVO EMBRYONIC AND EXTRA-EMBRYONIC LINEAGE PATTERNING
+# 	Human Post-Implantation Development in vitro by de novo Embryonic and Extra-Embryonic Lineage Patterning
 
 ## Abstract
 Investigating human development is a significant scientific challenge due to the
