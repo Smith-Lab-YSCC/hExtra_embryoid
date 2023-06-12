@@ -1,4 +1,5 @@
 # 	Human Post-Implantation Development in vitro by de novo Embryonic and Extra-Embryonic Lineage Patterning
+Pedroza, Gassaloglu et al., 2023
 
 ## Abstract
 Investigating human development is a significant scientific challenge due to the
