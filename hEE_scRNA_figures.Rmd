@@ -66,7 +66,7 @@ Required data:
 1. Seurat object + metadata for hEE data and reference
 2. Celltypist scores
 
-The scRNA-seq data used in this project is available under the GEO accession GSE208195. The metadata for the hEE object is supplied as Supplementary Table 6. The reclustered in vivo reference and the CellTypist classification scores are available in this repository under "processed_data".
+The scRNA-seq data used in this project is available under the GEO accession GSE208195. The metadata for the hEE object is supplied as Supplementary Table 6. The re-clustered in vivo reference and the CellTypist classification scores are available in this repository under the "processed_data" folder.
 
 ```{r load data}
 # load(/path/to/hEE.Robj)
