@@ -179,11 +179,11 @@ fig4_data <- fig4_data %>%
 
 
 # Calculate trajectory for pseudotime
-fig4_data$pseudotime <- slingPseudotime(sce)
-
 fig4 <- as.SingleCellExperiment(fig4_data)
-
 sce <- slingshot(fig4, clusterLabels = fig4_data$Cell.type, reducedDim = "PCA")
+
+fig4_data$pseudotime <- slingPseudotime(sce)
+fig4 <- as.SingleCellExperiment(fig4_data)
 
 # Plot may be rotated 
 colors <- rainbow(50, alpha = 1)
