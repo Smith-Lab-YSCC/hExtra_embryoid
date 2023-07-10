@@ -23,8 +23,8 @@ congenital pathologies.
 
 ## Structure
 
-This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures presented in Pedroza et al., 2023: "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". Analysis methods and logic underlying decisions are described within hEE_analysis_summary.
+This repository contains the code used to process and generate the single-cell RNA-sequencing data and figures, and the Whole Genome Bissulfite Sequencing figures presented in Pedroza et al., 2023: "Human post-implantation development in vitro by de novo embryonic and extra-embryonic lineage patterning". Analysis methods and logic underlying decisions are described within the analysis summary. The processed data contains our reorganized _in vivo_ reference object, as used for the reference mapping analyses, and the hEE CellTypist scores for each reference cell type.
 
 ## Data Availability
 
-The original scRNA-seq dataset for the extra-embryoid can be found in the Gene Expression Omnibus (GEO) under accession code GSE208195.
+The hEE scRNA-seq data can be found in the Gene Expression Omnibus (GEO) under accession code GSE208195.
