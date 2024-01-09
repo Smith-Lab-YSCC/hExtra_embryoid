@@ -316,7 +316,7 @@ edfig3f_data <- cosine(edfig3f_data)
 
 edfig3f_data <- edfig3f_data[as.character(unique(Ref$Pedroza.annotation)), as.character(unique(hEE$Cell.type))]
 
-edfig3f <- Heatmap(t(cos_s), heatmap_legend_param = list(title = "Similarity"), column_title = "Cosine Similarity (Raw Score)", 
+edfig3f <- Heatmap(t(edfig3f_data), heatmap_legend_param = list(title = "Similarity"), column_title = "Cosine Similarity (Raw Score)", 
     column_title_gp = gpar(fontsize = 16, fontface = "bold"))
 
 draw(edfig3f)
